@@ -1,6 +1,4 @@
-symbol,name
-THYAO,Turk Hava Yollari
-ASELS,Aselsan
-GARAN,Garanti BBVA
-SISE,Sise Cam
-KCHOL,Koc Holding
+symbol,asset_type,quantity,average_cost,currency
+THYAO.IS,stock,100,285.50,TRY
+TUPRS.IS,stock,40,172.30,TRY
+BTC-USD,crypto,0.05,65000,USD
