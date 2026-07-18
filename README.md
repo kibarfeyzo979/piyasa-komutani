@@ -38,11 +38,13 @@ piyasa-komutani/
 ├── config.toml               # veri kaynagi, indikator ve ciktiya dair ayarlar
 ├── portfolio.csv              # ornek sembol listesi (symbol, name)
 ├── src/piyasa_komutani/
-│   ├── data.py                # sembol listesi okuma + fiyat verisi alma
+│   ├── data.py                # portfoy CSV okuma + dogrulama
+│   ├── market_data.py          # yfinance ile OHLCV fiyat verisi cekme + cache
 │   ├── indicators.py          # EMA, RSI, MACD hesaplama
 │   ├── scoring.py              # firsat puani hesaplama
 │   └── export.py               # Excel'e yazma
 ├── tests/                      # birim testleri
+├── data/market_data/           # cache'lenen sembol bazli OHLCV CSV'leri (git'e dahil degil)
 └── output/                     # uretilen Excel ciktilari (git'e dahil degil)
 ```
 

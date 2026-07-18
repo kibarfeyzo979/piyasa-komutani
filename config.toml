@@ -2,7 +2,7 @@
 source = "yfinance"
 ticker_suffix = ".IS"
 symbols_file = "portfolio.csv"
-history_period = "6mo"
+history_period = "1y"
 
 [indicators]
 ema_short = 12
