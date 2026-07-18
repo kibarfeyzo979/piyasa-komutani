@@ -141,3 +141,8 @@ def sync_portfolio_symbols(
     """
     unique_symbols = list(dict.fromkeys(symbols))
     return [sync_symbol(symbol, cache_dir) for symbol in unique_symbols]
+
+
+def load_cached_prices(symbol: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame | None:
+    """symbol icin cache'lenmis OHLCV verisini okur; cache yoksa None doner."""
+    return _load_cached(_cache_path(symbol, cache_dir))

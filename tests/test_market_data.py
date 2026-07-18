@@ -15,6 +15,7 @@ from piyasa_komutani import market_data
 from piyasa_komutani.market_data import (
     SymbolSyncResult,
     _last_expected_trading_day,
+    load_cached_prices,
     sync_portfolio_symbols,
     sync_symbol,
 )
@@ -192,3 +193,18 @@ def test_sync_portfolio_symbols_deduplicates_preserving_order(
 
     assert [r.symbol for r in results] == ["AAA", "BBB"]
     assert calls == ["AAA", "BBB"]
+
+
+def test_load_cached_prices_returns_dataframe_when_cache_exists(tmp_path) -> None:
+    _write_cache_csv(tmp_path, "AAA", "2024-01-01", "2024-01-02")
+
+    result = load_cached_prices("AAA", cache_dir=tmp_path)
+
+    assert result is not None
+    assert list(result["Date"].dt.date) == [date(2024, 1, 1), date(2024, 1, 2)]
+
+
+def test_load_cached_prices_returns_none_when_cache_missing(tmp_path) -> None:
+    result = load_cached_prices("AAA", cache_dir=tmp_path)
+
+    assert result is None
