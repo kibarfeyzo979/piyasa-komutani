@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,9 @@ def _validate_row(raw_row: dict[str, str], line_number: int) -> tuple[PortfolioR
     except ValueError:
         return None, f"Satir {line_number} ({symbol}): quantity sayisal bir deger olmali, '{quantity_raw}' gecersiz."
 
+    if not math.isfinite(quantity):
+        return None, f"Satir {line_number} ({symbol}): quantity sonlu bir sayi olmali, '{quantity_raw}' gecersiz."
+
     if quantity <= 0:
         return None, f"Satir {line_number} ({symbol}): quantity negatif veya sifir olamaz."
 
@@ -54,6 +58,12 @@ def _validate_row(raw_row: dict[str, str], line_number: int) -> tuple[PortfolioR
     except ValueError:
         return None, (
             f"Satir {line_number} ({symbol}): average_cost sayisal bir deger olmali, "
+            f"'{average_cost_raw}' gecersiz."
+        )
+
+    if not math.isfinite(average_cost):
+        return None, (
+            f"Satir {line_number} ({symbol}): average_cost sonlu bir sayi olmali, "
             f"'{average_cost_raw}' gecersiz."
         )
 
@@ -81,11 +91,14 @@ def read_portfolio(path: Path) -> tuple[list[PortfolioRow], list[str]]:
     Gecerli satirlari ve hatali satirlar icin anlasilir hata mesajlarini
     ayri listeler halinde dondurur. Bir satirdaki hata digerlerinin
     islenmesini engellemez.
+
+    Dosya bulunamazsa veya okunamazsa OSError yukselir; bu durumu
+    kullaniciya bildirmek cagiranin sorumlulugundadir.
     """
     valid_rows: list[PortfolioRow] = []
     errors: list[str] = []
 
-    with path.open(newline="", encoding="utf-8") as csv_file:
+    with path.open(newline="", encoding="utf-8-sig") as csv_file:
         reader = csv.DictReader(csv_file)
         for line_number, raw_row in enumerate(reader, start=2):
             row, error = _validate_row(raw_row, line_number)
