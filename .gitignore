@@ -11,3 +11,6 @@ wheels/
 
 # Uygulama ciktilari
 output/
+
+# Deneme/ogrenme calismalari
+denemeogrenme/
