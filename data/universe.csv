@@ -2,3 +2,15 @@ symbol,name,market,enabled
 THYAO.IS,Turk Hava Yollari,BIST,true
 TUPRS.IS,Tupras,BIST,true
 ASELS.IS,Aselsan,BIST,true
+EREGL.IS,Eregli Demir Celik,BIST,true
+SISE.IS,Sise Cam,BIST,true
+AKBNK.IS,Akbank,BIST,true
+GARAN.IS,Garanti BBVA,BIST,true
+YKBNK.IS,Yapi Kredi,BIST,true
+ISCTR.IS,Is Bankasi C,BIST,true
+KCHOL.IS,Koc Holding,BIST,true
+SAHOL.IS,Sabanci Holding,BIST,true
+BIMAS.IS,Bim Magazalar,BIST,true
+FROTO.IS,Ford Otosan,BIST,true
+TOASO.IS,Tofas,BIST,true
+PGSUS.IS,Pegasus,BIST,true

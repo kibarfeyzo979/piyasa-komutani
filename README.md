@@ -20,17 +20,20 @@ uv sync
 
 ## Calistirma
 
+`main.py` tek giris noktasi, iki alt komutu var (argparse, agir bir
+CLI framework yok):
+
 ```
-uv run main.py
+uv run python main.py portfolio   # veya sadece: uv run python main.py
 ```
 
 `portfolio.csv`'deki her sembol icin piyasa verisini cache'ler (veya
 gerekirse gunceller), indikatorleri ve firsat puanini hesaplar,
 sonuclari `output/sonuclar.xlsx` dosyasina yazar ve ozet bir tablo
-ekrana basar.
+ekrana basar. `portfolio` argumani opsiyonel - varsayilan komut budur.
 
 ```
-uv run scanner.py
+uv run python main.py scan
 ```
 
 `data/universe.csv`'deki (portfoyden bagimsiz) `enabled=true`
@@ -49,8 +52,7 @@ uv run pytest
 
 ```
 piyasa-komutani/
-├── main.py                  # portfoy CLI giris noktasi, tum pipeline'i baglar
-├── scanner.py                 # Opportunity Scanner CLI giris noktasi
+├── main.py                  # tek CLI giris noktasi (argparse): portfolio / scan alt komutlari
 ├── config.toml               # veri kaynagi, indikator ve tarayici ayarlari
 ├── portfolio.csv              # portfoy: symbol, asset_type, quantity, average_cost, currency
 ├── src/piyasa_komutani/
@@ -67,7 +69,7 @@ piyasa-komutani/
 │   ├── universe.csv            # tarama evreni: symbol, name, market, enabled
 │   └── market_data/            # cache'lenen sembol bazli OHLCV CSV'leri (git'e dahil degil)
 ├── output/                     # uretilen Excel ciktilari (git'e dahil degil)
-└── reports/                    # scanner.py'nin urettigi CSV raporlari (git'e dahil degil)
+└── reports/                    # `main.py scan`'in urettigi CSV raporlari (git'e dahil degil)
 ```
 
 ## 1. Asama Yol Haritasi
