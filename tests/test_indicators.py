@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from piyasa_komutani.indicators import (
+    calculate_average_volume,
     calculate_ema,
     calculate_indicators,
     calculate_macd,
@@ -135,3 +136,20 @@ def test_calculate_indicators_produces_expected_columns() -> None:
         "MACD_Hist",
     ]
     assert len(result) == 40
+
+
+def test_calculate_average_volume_matches_simple_average() -> None:
+    volume = pd.Series([100.0, 200.0, 300.0])
+
+    result = calculate_average_volume(volume, period=3)
+
+    assert result.iloc[2] == pytest.approx(200.0)
+
+
+def test_calculate_average_volume_is_nan_before_period_completes() -> None:
+    volume = pd.Series([100.0, 200.0, 300.0, 400.0, 500.0])
+
+    result = calculate_average_volume(volume, period=3)
+
+    assert result.iloc[:2].isna().all()
+    assert result.iloc[2:].notna().all()

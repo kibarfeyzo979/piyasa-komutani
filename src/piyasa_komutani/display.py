@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from piyasa_komutani.data import PortfolioRow
+from piyasa_komutani.opportunity_scanner import OpportunityCandidate
 from piyasa_komutani.technical_analysis import OpportunityScore
 
 
@@ -92,5 +93,45 @@ def render_opportunity_table(rows: list[OpportunityRow]) -> str:
 
     buffer = StringIO()
     console = Console(file=buffer, width=160, no_color=True)
+    console.print(table)
+    return buffer.getvalue()
+
+
+def render_scanner_table(candidates: list[OpportunityCandidate], *, limit: int | None = None) -> str:
+    """Siralanmis firsat adaylarini rich ile bicimlendirilmis bir tablo metnine donusturur.
+
+    limit verilirse yalnizca ilk `limit` aday gosterilir (Rank hep 1'den baslar).
+    """
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    table.add_column("Rank", justify="right")
+    table.add_column("Symbol")
+    table.add_column("Close", justify="right")
+    table.add_column("EMA20", justify="right")
+    table.add_column("EMA50", justify="right")
+    table.add_column("EMA200", justify="right")
+    table.add_column("RSI", justify="right")
+    table.add_column("MACD Histogram", justify="right")
+    table.add_column("Average Volume 20", justify="right")
+    table.add_column("Opportunity Score", justify="right")
+    table.add_column("Status")
+
+    rows_to_show = candidates if limit is None else candidates[:limit]
+    for rank, candidate in enumerate(rows_to_show, start=1):
+        table.add_row(
+            str(rank),
+            candidate.symbol,
+            _format_number(candidate.close),
+            _format_number(candidate.ema20),
+            _format_number(candidate.ema50),
+            _format_number(candidate.ema200),
+            _format_number(candidate.rsi, ".1f"),
+            _format_number(candidate.macd_hist, ".3f"),
+            _format_number(candidate.average_volume_20, ",.0f"),
+            str(candidate.score.score),
+            candidate.score.status or "-",
+        )
+
+    buffer = StringIO()
+    console = Console(file=buffer, width=170, no_color=True)
     console.print(table)
     return buffer.getvalue()

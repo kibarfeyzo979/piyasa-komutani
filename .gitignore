@@ -11,7 +11,8 @@ wheels/
 
 # Uygulama ciktilari
 output/
-data/
+reports/
+data/market_data/
 
 # Deneme/ogrenme calismalari
 denemeogrenme/

@@ -1,7 +1,13 @@
-"""render_portfolio_table ve render_opportunity_table testleri."""
+"""render_portfolio_table, render_opportunity_table ve render_scanner_table testleri."""
 
 from piyasa_komutani.data import PortfolioRow
-from piyasa_komutani.display import OpportunityRow, render_opportunity_table, render_portfolio_table
+from piyasa_komutani.display import (
+    OpportunityRow,
+    render_opportunity_table,
+    render_portfolio_table,
+    render_scanner_table,
+)
+from piyasa_komutani.opportunity_scanner import OpportunityCandidate
 from piyasa_komutani.technical_analysis import OpportunityScore
 
 
@@ -48,3 +54,38 @@ def test_render_opportunity_table_shows_placeholder_for_unavailable_score() -> N
 
     assert "Yetersiz gecmis veri." in output
     assert "-" in output
+
+
+def _candidate(symbol: str, score: int, status: str = "STRONG") -> OpportunityCandidate:
+    return OpportunityCandidate(
+        symbol=symbol,
+        close=110.0,
+        ema20=105.0,
+        ema50=100.0,
+        ema200=90.0,
+        rsi=60.0,
+        macd_hist=1.5,
+        average_volume_20=300_000.0,
+        score=OpportunityScore(score, status, ("neden",)),
+    )
+
+
+def test_render_scanner_table_includes_headers_and_rank() -> None:
+    candidates = [_candidate("AAA", 90), _candidate("BBB", 80)]
+
+    output = render_scanner_table(candidates)
+
+    assert "Rank" in output
+    assert "Average Volume 20" in output
+    assert "AAA" in output
+    assert "BBB" in output
+    assert "300,000" in output
+
+
+def test_render_scanner_table_limit_truncates_results() -> None:
+    candidates = [_candidate(f"SYM{i}", 100 - i) for i in range(15)]
+
+    output = render_scanner_table(candidates, limit=10)
+
+    assert "SYM9" in output
+    assert "SYM10" not in output

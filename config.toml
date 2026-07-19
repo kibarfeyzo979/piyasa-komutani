@@ -16,3 +16,6 @@ rsi_overbought = 70
 
 [output]
 excel_path = "output/sonuclar.xlsx"
+
+[scanner]
+min_average_volume = 100000

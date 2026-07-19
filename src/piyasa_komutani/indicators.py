@@ -1,4 +1,4 @@
-"""EMA, RSI ve MACD hesaplamalari.
+"""EMA, RSI, MACD ve ortalama hacim hesaplamalari.
 
 Saf hesaplama modulu: dosya/ag erisimi yok, yalnizca pandas
 Series/DataFrame alip donuyor. Fiyat verisini yuklemek icin
@@ -71,6 +71,11 @@ def calculate_macd(
     signal_line = calculate_ema(macd_line, signal_span)
     histogram = macd_line - signal_line
     return MACDResult(macd_line, signal_line, histogram)
+
+
+def calculate_average_volume(volume: pd.Series, period: int = 20) -> pd.Series:
+    """Basit hareketli ortalama islem hacmi. period gun dolmadan NaN doner."""
+    return volume.rolling(window=period, min_periods=period).mean()
 
 
 def calculate_indicators(
