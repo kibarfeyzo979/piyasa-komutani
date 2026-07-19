@@ -7,6 +7,7 @@ islenmesini engellemez (bkz. sync_portfolio_symbols).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 LOOKBACK_DAYS = 365
 DEFAULT_CACHE_DIR = Path("data/market_data")
 OHLCV_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+DOWNLOAD_TIMEOUT_SECONDS = 30
+
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 
 @dataclass(frozen=True)
@@ -33,18 +37,53 @@ class SymbolSyncResult:
 
 
 def _cache_path(symbol: str, cache_dir: Path) -> Path:
-    return cache_dir / f"{symbol}.csv"
+    safe_symbol = _UNSAFE_FILENAME_CHARS.sub("_", symbol)
+    return cache_dir / f"{safe_symbol}.csv"
+
+
+def _is_valid_cache(data: pd.DataFrame) -> bool:
+    """Cache'den okunan verinin anlamli bir OHLCV tablosu oldugunu dogrular.
+
+    Sozdizimsel olarak gecerli (parse edilebilir) ama bozuk/anlamsiz bir
+    CSV'yi (bit-rot, elle duzenleme, yarim yazma) sessizce kabul etmek
+    yerine reddeder.
+    """
+    if not {"Date", *OHLCV_COLUMNS}.issubset(data.columns):
+        return False
+    if data.empty:
+        return True
+    if not all(pd.api.types.is_numeric_dtype(data[column]) for column in OHLCV_COLUMNS):
+        return False
+    if data[OHLCV_COLUMNS].isna().any().any():
+        return False
+    if (data[["Open", "High", "Low", "Close"]] <= 0).any().any():
+        return False
+    if (data["High"] < data["Low"]).any():
+        return False
+    return not (data["Volume"] < 0).any()
 
 
 def _load_cached(path: Path) -> pd.DataFrame | None:
     if not path.exists():
         return None
-    return pd.read_csv(path, parse_dates=["Date"])
+
+    data = pd.read_csv(path, parse_dates=["Date"])
+    if not _is_valid_cache(data):
+        logger.warning("Cache dosyasi bozuk gorunuyor, yok sayiliyor: %s", path)
+        return None
+    return data
 
 
 def _save_cache(path: Path, data: pd.DataFrame) -> None:
+    """Veriyi atomik olarak kaydeder (once gecici dosyaya yazip yerine tasir).
+
+    Boylece yazma sirasinda kesinti (guc kesintisi, islemin oldurulmesi)
+    olsa bile yarim/bozuk bir cache dosyasi kalici olarak diskte kalmaz.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    data.to_csv(path, index=False)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    data.to_csv(tmp_path, index=False)
+    tmp_path.replace(path)
 
 
 def _last_expected_trading_day(today: date) -> date:
@@ -64,10 +103,25 @@ def _download_history(symbol: str, start: date, end: date) -> pd.DataFrame:
 
     Bu fonksiyon testlerde monkeypatch ile degistirilerek gercek ag
     erisimi yapilmadan mock'lanir.
+
+    Ag istegi DOWNLOAD_TIMEOUT_SECONDS ile sinirlandirilir; aksi halde
+    takilan bir baglanti sync_portfolio_symbols dongusunu bir sembolde
+    sinirsiz sure bloklayabilir.
     """
-    history = yf.Ticker(symbol).history(start=start, end=end, interval="1d", auto_adjust=False)
+    history = yf.Ticker(symbol).history(
+        start=start,
+        end=end,
+        interval="1d",
+        auto_adjust=False,
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+    )
     if history.empty:
         return pd.DataFrame(columns=["Date", *OHLCV_COLUMNS])
+
+    if isinstance(history.columns, pd.MultiIndex):
+        # yfinance bazi surumlerde/senaryolarda (orn. coklu sembol indirmede)
+        # MultiIndex kolonlar dondurebiliyor; ilk seviye (OHLCV alan adi) yeterli.
+        history.columns = history.columns.get_level_values(0)
 
     history = history[OHLCV_COLUMNS].reset_index(names="Date")
     dates = pd.to_datetime(history["Date"])
@@ -122,8 +176,12 @@ def sync_symbol(symbol: str, cache_dir: Path, *, today: date | None = None) -> S
             return SymbolSyncResult(symbol, "failed", message)
         return SymbolSyncResult(symbol, "fresh", "yeni gun yok")
 
-    merged = _merge(cached, new_data)
-    _save_cache(path, merged)
+    try:
+        merged = _merge(cached, new_data)
+        _save_cache(path, merged)
+    except Exception as exc:
+        logger.error("Sembol %s icin cache kaydedilemedi: %s", symbol, exc)
+        return SymbolSyncResult(symbol, "failed", str(exc))
 
     previous_row_count = 0 if cached is None else len(cached)
     new_day_count = len(merged) - previous_row_count

@@ -208,3 +208,158 @@ def test_load_cached_prices_returns_none_when_cache_missing(tmp_path) -> None:
     result = load_cached_prices("AAA", cache_dir=tmp_path)
 
     assert result is None
+
+
+def test_save_failure_is_reported_not_raised(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_download(symbol: str, start: date, end: date) -> pd.DataFrame:
+        return _bars("2024-01-08")
+
+    def fake_save(path, data) -> None:
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr(market_data, "_download_history", fake_download)
+    monkeypatch.setattr(market_data, "_save_cache", fake_save)
+
+    result = sync_symbol("AAA", tmp_path, today=MONDAY)
+
+    assert result.status == "failed"
+    assert result.message is not None
+    assert "disk dolu" in result.message
+
+
+def test_download_history_passes_explicit_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs = {}
+
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            pass
+
+        def history(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            return pd.DataFrame()
+
+    monkeypatch.setattr(market_data.yf, "Ticker", FakeTicker)
+
+    market_data._download_history("AAA", date(2024, 1, 1), date(2024, 1, 2))
+
+    assert captured_kwargs["timeout"] == market_data.DOWNLOAD_TIMEOUT_SECONDS
+
+
+def test_download_history_flattens_multiindex_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+    dates = pd.date_range("2024-01-01", periods=2, freq="D")
+    multi_columns = pd.MultiIndex.from_product(
+        [["Open", "High", "Low", "Close", "Volume"], ["AAA"]]
+    )
+    raw = pd.DataFrame(
+        [[10.0, 11.0, 9.0, 10.5, 100], [11.0, 12.0, 10.0, 11.5, 120]],
+        index=dates,
+        columns=multi_columns,
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            pass
+
+        def history(self, **kwargs):
+            return raw
+
+    monkeypatch.setattr(market_data.yf, "Ticker", FakeTicker)
+
+    result = market_data._download_history("AAA", date(2024, 1, 1), date(2024, 1, 3))
+
+    assert list(result.columns) == ["Date", "Open", "High", "Low", "Close", "Volume"]
+    assert len(result) == 2
+
+
+def test_download_history_converts_timezone_aware_index_to_naive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dates = pd.date_range("2024-01-01", periods=2, freq="D", tz="Europe/Istanbul")
+    raw = pd.DataFrame(
+        {
+            "Open": [10.0, 11.0],
+            "High": [11.0, 12.0],
+            "Low": [9.0, 10.0],
+            "Close": [10.5, 11.5],
+            "Volume": [100, 120],
+        },
+        index=dates,
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            pass
+
+        def history(self, **kwargs):
+            return raw
+
+    monkeypatch.setattr(market_data.yf, "Ticker", FakeTicker)
+
+    result = market_data._download_history("AAA", date(2024, 1, 1), date(2024, 1, 3))
+
+    assert result["Date"].dt.tz is None
+    assert list(result["Date"].dt.date) == [date(2024, 1, 1), date(2024, 1, 2)]
+
+
+def test_save_cache_writes_atomically_leaving_no_temp_file(tmp_path) -> None:
+    path = tmp_path / "AAA.csv"
+
+    market_data._save_cache(path, _bars("2024-01-01"))
+
+    assert path.exists()
+    assert not (tmp_path / "AAA.csv.tmp").exists()
+
+
+def _write_raw_csv(path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def test_load_cached_prices_rejects_cache_with_missing_columns(tmp_path) -> None:
+    path = tmp_path / "AAA.csv"
+    _write_raw_csv(path, "Date,Open\n2024-01-01,10.0\n")
+
+    assert load_cached_prices("AAA", cache_dir=tmp_path) is None
+
+
+def test_load_cached_prices_rejects_cache_with_negative_price(tmp_path) -> None:
+    path = tmp_path / "AAA.csv"
+    _write_raw_csv(
+        path,
+        "Date,Open,High,Low,Close,Volume\n2024-01-01,-10.0,11.0,9.0,10.5,100\n",
+    )
+
+    assert load_cached_prices("AAA", cache_dir=tmp_path) is None
+
+
+def test_load_cached_prices_rejects_cache_with_high_less_than_low(tmp_path) -> None:
+    path = tmp_path / "AAA.csv"
+    _write_raw_csv(
+        path,
+        "Date,Open,High,Low,Close,Volume\n2024-01-01,10.0,9.0,11.0,10.5,100\n",
+    )
+
+    assert load_cached_prices("AAA", cache_dir=tmp_path) is None
+
+
+def test_sync_symbol_refetches_fully_when_cache_is_corrupted(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "AAA.csv"
+    _write_raw_csv(
+        path,
+        "Date,Open,High,Low,Close,Volume\n2024-01-01,-10.0,11.0,9.0,10.5,100\n",
+    )
+    calls = []
+
+    def fake(symbol: str, start: date, end: date) -> pd.DataFrame:
+        calls.append((symbol, start, end))
+        return _bars("2024-01-08")
+
+    monkeypatch.setattr(market_data, "_download_history", fake)
+
+    result = sync_symbol("AAA", tmp_path, today=MONDAY)
+
+    assert result.status == "updated"
+    _, start, _end = calls[0]
+    assert start == MONDAY - timedelta(days=market_data.LOOKBACK_DAYS)
