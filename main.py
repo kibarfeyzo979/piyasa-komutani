@@ -16,8 +16,10 @@ from piyasa_komutani.opportunity_scanner import load_min_average_volume, scan_un
 from piyasa_komutani.scoring import score_latest
 from piyasa_komutani.technical_analysis import (
     OpportunityScore,
+    TrendScore,
     calculate_opportunity_score,
     calculate_technical_indicators,
+    calculate_trend_score,
 )
 
 PORTFOLIO_PATH = Path(__file__).resolve().parent / "portfolio.csv"
@@ -57,6 +59,7 @@ def _build_opportunity_rows(rows: list[PortfolioRow]) -> list[OpportunityRow]:
     for portfolio_row in rows:
         prices = load_cached_prices(portfolio_row.symbol, cache_dir=MARKET_DATA_DIR)
         if prices is None or prices.empty:
+            unavailable = TrendScore(None, None, (), "Cache'lenmis veri yok.")
             opportunity_rows.append(
                 OpportunityRow(
                     portfolio_row.symbol,
@@ -66,13 +69,15 @@ def _build_opportunity_rows(rows: list[PortfolioRow]) -> list[OpportunityRow]:
                     None,
                     None,
                     None,
+                    unavailable,
                     OpportunityScore(None, None, (), "Cache'lenmis veri yok."),
                 )
             )
             continue
 
         ta = calculate_technical_indicators(prices)
-        score = calculate_opportunity_score(ta)
+        trend = calculate_trend_score(ta)
+        opportunity = calculate_opportunity_score(ta, trend)
         latest = ta.iloc[-1]
         opportunity_rows.append(
             OpportunityRow(
@@ -83,7 +88,8 @@ def _build_opportunity_rows(rows: list[PortfolioRow]) -> list[OpportunityRow]:
                 latest["EMA_200"],
                 latest["RSI_14"],
                 latest["MACD_Hist"],
-                score,
+                trend,
+                opportunity,
             )
         )
 
@@ -186,8 +192,8 @@ def run_scan() -> None:
     print(f"Scanned: {report.scanned}")
     print(f"Successful: {report.successful}")
     print(f"Failed: {report.failed}")
-    print(f"Strong: {report.strong_count}")
-    print(f"Promising: {report.promising_count}")
+    print(f"High Opportunity: {report.high_opportunity_count}")
+    print(f"Interesting: {report.interesting_count}")
 
 
 def main() -> None:

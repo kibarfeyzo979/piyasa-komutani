@@ -21,8 +21,10 @@ from piyasa_komutani.indicators import calculate_average_volume
 from piyasa_komutani.market_data import DEFAULT_CACHE_DIR, load_cached_prices, sync_portfolio_symbols
 from piyasa_komutani.technical_analysis import (
     OpportunityScore,
+    TrendScore,
     calculate_opportunity_score,
     calculate_technical_indicators,
+    calculate_trend_score,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,8 +43,12 @@ CSV_COLUMNS = [
     "RSI",
     "MACD Histogram",
     "Average Volume 20",
+    "Trend Score",
+    "Trend Status",
     "Opportunity Score",
-    "Status",
+    "Opportunity Status",
+    "Return 20D",
+    "Distance EMA20 %",
 ]
 
 
@@ -67,7 +73,10 @@ class OpportunityCandidate:
     rsi: float
     macd_hist: float
     average_volume_20: float
-    score: OpportunityScore
+    return_20d: float
+    distance_ema20_pct: float
+    trend: TrendScore
+    opportunity: OpportunityScore
 
 
 @dataclass(frozen=True)
@@ -90,12 +99,12 @@ class ScanReport:
         return sum(1 for outcome in self.outcomes if outcome.status == "error")
 
     @property
-    def strong_count(self) -> int:
-        return sum(1 for candidate in self.candidates if candidate.score.status == "STRONG")
+    def high_opportunity_count(self) -> int:
+        return sum(1 for candidate in self.candidates if candidate.opportunity.status == "HIGH_OPPORTUNITY")
 
     @property
-    def promising_count(self) -> int:
-        return sum(1 for candidate in self.candidates if candidate.score.status == "PROMISING")
+    def interesting_count(self) -> int:
+        return sum(1 for candidate in self.candidates if candidate.opportunity.status == "INTERESTING")
 
 
 def load_min_average_volume(config_path: Path) -> float:
@@ -120,9 +129,11 @@ def _scan_symbol(symbol: str, cache_dir: Path, min_average_volume: float) -> tup
             return ScanOutcome(symbol, "error", "Piyasa verisi yok."), None
 
         indicators = calculate_technical_indicators(prices)
-        score = calculate_opportunity_score(indicators)
-        if score.score is None:
-            return ScanOutcome(symbol, "error", score.unavailable_reason), None
+        trend = calculate_trend_score(indicators)
+        if trend.score is None:
+            return ScanOutcome(symbol, "error", trend.unavailable_reason), None
+
+        opportunity = calculate_opportunity_score(indicators, trend)
 
         average_volume = calculate_average_volume(prices["Volume"], AVERAGE_VOLUME_PERIOD).iloc[-1]
         if pd.isna(average_volume) or average_volume < min_average_volume:
@@ -138,7 +149,10 @@ def _scan_symbol(symbol: str, cache_dir: Path, min_average_volume: float) -> tup
             rsi=latest["RSI_14"],
             macd_hist=latest["MACD_Hist"],
             average_volume_20=average_volume,
-            score=score,
+            return_20d=latest["Return_20D"],
+            distance_ema20_pct=latest["Distance_EMA20_Pct"],
+            trend=trend,
+            opportunity=opportunity,
         )
         return ScanOutcome(symbol, "ok"), candidate
     except Exception as exc:
@@ -168,7 +182,7 @@ def scan_universe(
         if candidate is not None:
             candidates.append(candidate)
 
-    candidates.sort(key=lambda candidate: candidate.score.score, reverse=True)
+    candidates.sort(key=lambda candidate: (candidate.opportunity.score, candidate.trend.score), reverse=True)
     return ScanReport(outcomes, candidates)
 
 
@@ -185,8 +199,12 @@ def write_opportunities_csv(candidates: list[OpportunityCandidate], path: Path =
             "RSI": candidate.rsi,
             "MACD Histogram": candidate.macd_hist,
             "Average Volume 20": candidate.average_volume_20,
-            "Opportunity Score": candidate.score.score,
-            "Status": candidate.score.status,
+            "Trend Score": candidate.trend.score,
+            "Trend Status": candidate.trend.status,
+            "Opportunity Score": candidate.opportunity.score,
+            "Opportunity Status": candidate.opportunity.status,
+            "Return 20D": candidate.return_20d,
+            "Distance EMA20 %": candidate.distance_ema20_pct,
         }
         for rank, candidate in enumerate(candidates, start=1)
     ]

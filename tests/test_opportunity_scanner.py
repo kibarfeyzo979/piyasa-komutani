@@ -20,6 +20,7 @@ from piyasa_komutani.opportunity_scanner import (
     scan_universe,
     write_opportunities_csv,
 )
+from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
 def _make_price_data(rows: int = 250, *, volume: float = 200_000.0, trend: float = 0.1) -> pd.DataFrame:
@@ -86,7 +87,8 @@ def test_scan_symbol_success_produces_candidate(tmp_path, monkeypatch: pytest.Mo
     assert candidate is not None
     assert candidate.symbol == "AAA"
     assert candidate.average_volume_20 == pytest.approx(500_000.0)
-    assert candidate.score.score is not None
+    assert candidate.trend.score is not None
+    assert candidate.opportunity.score is not None
 
 
 def test_scan_symbol_unexpected_exception_is_caught(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,7 +142,7 @@ def test_scan_universe_continues_after_one_symbol_fails(tmp_path, monkeypatch: p
     assert [c.symbol for c in report.candidates] == ["GOOD"]
 
 
-def test_scan_universe_sorts_candidates_by_score_descending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scan_universe_sorts_by_opportunity_then_trend_descending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(opportunity_scanner, "sync_portfolio_symbols", _no_op_sync)
 
     def fake_load(symbol, cache_dir):
@@ -156,8 +158,8 @@ def test_scan_universe_sorts_candidates_by_score_descending(tmp_path, monkeypatc
     ]
     report = scan_universe(rows, cache_dir=tmp_path)
 
-    scores = [c.score.score for c in report.candidates]
-    assert scores == sorted(scores, reverse=True)
+    keys = [(c.opportunity.score, c.trend.score) for c in report.candidates]
+    assert keys == sorted(keys, reverse=True)
 
 
 def test_scan_report_summary_properties(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,7 +168,7 @@ def test_scan_report_summary_properties(tmp_path, monkeypatch: pytest.MonkeyPatc
     def fake_load(symbol, cache_dir):
         if symbol == "BAD":
             return None
-        return _make_price_data(trend=1.0)  # guclu trend -> STRONG/PROMISING olasi
+        return _make_price_data(trend=1.0)  # guclu trend -> HIGH_OPPORTUNITY/INTERESTING olasi
 
     monkeypatch.setattr(opportunity_scanner, "load_cached_prices", fake_load)
 
@@ -180,7 +182,7 @@ def test_scan_report_summary_properties(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert report.scanned == 3
     assert report.successful == 2
     assert report.failed == 1
-    assert report.strong_count + report.promising_count <= len(report.candidates)
+    assert report.high_opportunity_count + report.interesting_count <= len(report.candidates)
 
 
 # --- load_min_average_volume ---
@@ -217,8 +219,6 @@ def test_load_min_average_volume_falls_back_on_malformed_toml(tmp_path) -> None:
 
 
 def test_write_opportunities_csv_roundtrip(tmp_path) -> None:
-    from piyasa_komutani.technical_analysis import OpportunityScore
-
     path = tmp_path / "opportunities.csv"
     candidates = [
         OpportunityCandidate(
@@ -230,7 +230,10 @@ def test_write_opportunities_csv_roundtrip(tmp_path) -> None:
             rsi=60.0,
             macd_hist=1.5,
             average_volume_20=300_000.0,
-            score=OpportunityScore(90, "STRONG", ("neden",)),
+            return_20d=8.0,
+            distance_ema20_pct=1.2,
+            trend=TrendScore(85, "VERY_STRONG_TREND", ("neden",)),
+            opportunity=OpportunityScore(90, "HIGH_OPPORTUNITY", ("+ neden",)),
         )
     ]
 
@@ -247,12 +250,17 @@ def test_write_opportunities_csv_roundtrip(tmp_path) -> None:
         "RSI",
         "MACD Histogram",
         "Average Volume 20",
+        "Trend Score",
+        "Trend Status",
         "Opportunity Score",
-        "Status",
+        "Opportunity Status",
+        "Return 20D",
+        "Distance EMA20 %",
     ]
     assert result.loc[0, "Symbol"] == "AAA"
     assert result.loc[0, "Rank"] == 1
-    assert result.loc[0, "Status"] == "STRONG"
+    assert result.loc[0, "Trend Status"] == "VERY_STRONG_TREND"
+    assert result.loc[0, "Opportunity Status"] == "HIGH_OPPORTUNITY"
 
 
 def test_write_opportunities_csv_creates_missing_parent_directory(tmp_path) -> None:

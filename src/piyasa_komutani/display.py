@@ -12,7 +12,7 @@ from rich.table import Table
 
 from piyasa_komutani.data import PortfolioRow
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
-from piyasa_komutani.technical_analysis import OpportunityScore
+from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
 def render_portfolio_table(rows: list[PortfolioRow]) -> str:
@@ -41,7 +41,7 @@ def render_portfolio_table(rows: list[PortfolioRow]) -> str:
 
 @dataclass(frozen=True)
 class OpportunityRow:
-    """Bir sembolun teknik gostergeleri + Firsat Skoru'nun birlestirilmis hali."""
+    """Bir sembolun teknik gostergeleri + Trend Score + Opportunity Score'un birlestirilmis hali."""
 
     symbol: str
     close: float | None
@@ -50,7 +50,8 @@ class OpportunityRow:
     ema200: float | None
     rsi: float | None
     macd_hist: float | None
-    score: OpportunityScore
+    trend: TrendScore
+    opportunity: OpportunityScore
 
 
 def _format_number(value: float | None, fmt: str = ".2f") -> str:
@@ -63,7 +64,7 @@ def render_opportunity_table(rows: list[OpportunityRow]) -> str:
     """OpportunityRow listesini rich ile bicimlendirilmis bir tablo metnine donusturur.
 
     Skor uretilemeyen semboller icin sayisal kolonlar '-' gosterilir,
-    Status kolonuna nedeni yazilir.
+    Status kolonlarina nedeni yazilir.
     """
     table = Table(show_header=True, header_style="bold", box=box.ASCII)
     table.add_column("Symbol")
@@ -73,12 +74,18 @@ def render_opportunity_table(rows: list[OpportunityRow]) -> str:
     table.add_column("EMA200", justify="right")
     table.add_column("RSI", justify="right")
     table.add_column("MACD Histogram", justify="right")
+    table.add_column("Trend Score", justify="right")
+    table.add_column("Trend Status")
     table.add_column("Opportunity Score", justify="right")
-    table.add_column("Status")
+    table.add_column("Opportunity Status")
 
     for row in rows:
-        score = row.score
-        status_text = score.status if score.status is not None else (score.unavailable_reason or "-")
+        trend = row.trend
+        opportunity = row.opportunity
+        trend_status_text = trend.status if trend.status is not None else (trend.unavailable_reason or "-")
+        opportunity_status_text = (
+            opportunity.status if opportunity.status is not None else (opportunity.unavailable_reason or "-")
+        )
         table.add_row(
             row.symbol,
             _format_number(row.close),
@@ -87,12 +94,14 @@ def render_opportunity_table(rows: list[OpportunityRow]) -> str:
             _format_number(row.ema200),
             _format_number(row.rsi, ".1f"),
             _format_number(row.macd_hist, ".3f"),
-            str(score.score) if score.score is not None else "-",
-            status_text,
+            str(trend.score) if trend.score is not None else "-",
+            trend_status_text,
+            str(opportunity.score) if opportunity.score is not None else "-",
+            opportunity_status_text,
         )
 
     buffer = StringIO()
-    console = Console(file=buffer, width=160, no_color=True)
+    console = Console(file=buffer, width=200, no_color=True)
     console.print(table)
     return buffer.getvalue()
 
@@ -112,8 +121,12 @@ def render_scanner_table(candidates: list[OpportunityCandidate], *, limit: int |
     table.add_column("RSI", justify="right")
     table.add_column("MACD Histogram", justify="right")
     table.add_column("Average Volume 20", justify="right")
+    table.add_column("Trend Score", justify="right")
+    table.add_column("Trend Status")
     table.add_column("Opportunity Score", justify="right")
-    table.add_column("Status")
+    table.add_column("Opportunity Status")
+    table.add_column("Return 20D", justify="right")
+    table.add_column("Distance EMA20 %", justify="right")
 
     rows_to_show = candidates if limit is None else candidates[:limit]
     for rank, candidate in enumerate(rows_to_show, start=1):
@@ -127,11 +140,15 @@ def render_scanner_table(candidates: list[OpportunityCandidate], *, limit: int |
             _format_number(candidate.rsi, ".1f"),
             _format_number(candidate.macd_hist, ".3f"),
             _format_number(candidate.average_volume_20, ",.0f"),
-            str(candidate.score.score),
-            candidate.score.status or "-",
+            str(candidate.trend.score),
+            candidate.trend.status or "-",
+            str(candidate.opportunity.score),
+            candidate.opportunity.status or "-",
+            _format_number(candidate.return_20d, ".2f"),
+            _format_number(candidate.distance_ema20_pct, ".2f"),
         )
 
     buffer = StringIO()
-    console = Console(file=buffer, width=170, no_color=True)
+    console = Console(file=buffer, width=230, no_color=True)
     console.print(table)
     return buffer.getvalue()

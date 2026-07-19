@@ -8,7 +8,7 @@ from piyasa_komutani.display import (
     render_scanner_table,
 )
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
-from piyasa_komutani.technical_analysis import OpportunityScore
+from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
 def test_render_includes_headers_and_rows() -> None:
@@ -34,21 +34,25 @@ def test_render_empty_rows_returns_header_only() -> None:
 
 
 def test_render_opportunity_table_includes_headers_and_values() -> None:
-    score = OpportunityScore(72, "PROMISING", ("neden",))
-    rows = [OpportunityRow("THYAO.IS", 330.0, 320.0, 300.0, 280.0, 55.5, 0.123, score)]
+    trend = TrendScore(85, "VERY_STRONG_TREND", ("neden",))
+    opportunity = OpportunityScore(72, "INTERESTING", ("+ neden",))
+    rows = [OpportunityRow("THYAO.IS", 330.0, 320.0, 300.0, 280.0, 55.5, 0.123, trend, opportunity)]
 
     output = render_opportunity_table(rows)
 
+    assert "Trend Score" in output
     assert "Opportunity Score" in output
-    assert "Status" in output
     assert "THYAO.IS" in output
+    assert "85" in output
+    assert "VERY_STRONG_TREND" in output
     assert "72" in output
-    assert "PROMISING" in output
+    assert "INTERESTING" in output
 
 
 def test_render_opportunity_table_shows_placeholder_for_unavailable_score() -> None:
-    score = OpportunityScore(None, None, (), "Yetersiz gecmis veri.")
-    rows = [OpportunityRow("BILINMEYEN", None, None, None, None, None, None, score)]
+    trend = TrendScore(None, None, (), "Yetersiz gecmis veri.")
+    opportunity = OpportunityScore(None, None, (), "Yetersiz gecmis veri.")
+    rows = [OpportunityRow("BILINMEYEN", None, None, None, None, None, None, trend, opportunity)]
 
     output = render_opportunity_table(rows)
 
@@ -56,7 +60,7 @@ def test_render_opportunity_table_shows_placeholder_for_unavailable_score() -> N
     assert "-" in output
 
 
-def _candidate(symbol: str, score: int, status: str = "STRONG") -> OpportunityCandidate:
+def _candidate(symbol: str, opportunity_score: int, trend_score: int = 70) -> OpportunityCandidate:
     return OpportunityCandidate(
         symbol=symbol,
         close=110.0,
@@ -66,7 +70,10 @@ def _candidate(symbol: str, score: int, status: str = "STRONG") -> OpportunityCa
         rsi=60.0,
         macd_hist=1.5,
         average_volume_20=300_000.0,
-        score=OpportunityScore(score, status, ("neden",)),
+        return_20d=5.0,
+        distance_ema20_pct=1.5,
+        trend=TrendScore(trend_score, "STRONG_TREND", ("neden",)),
+        opportunity=OpportunityScore(opportunity_score, "INTERESTING", ("+ neden",)),
     )
 
 
@@ -77,6 +84,12 @@ def test_render_scanner_table_includes_headers_and_rank() -> None:
 
     assert "Rank" in output
     assert "Average Volume 20" in output
+    assert "Trend Score" in output
+    assert "Trend Status" in output
+    assert "Opportunity Score" in output
+    assert "Opportunity Status" in output
+    assert "Return 20D" in output
+    assert "Distance EMA20 %" in output
     assert "AAA" in output
     assert "BBB" in output
     assert "300,000" in output
