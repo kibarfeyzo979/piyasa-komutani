@@ -67,7 +67,7 @@ def test_full_fetch_when_no_cache_exists(tmp_path, monkeypatch: pytest.MonkeyPat
     assert len(calls) == 1
     _, start, end = calls[0]
     assert start == MONDAY - timedelta(days=market_data.LOOKBACK_DAYS)
-    assert end == MONDAY + timedelta(days=1)
+    assert end == MONDAY  # end-exclusive: bugunun barini asla cekmez
 
     cached = pd.read_csv(tmp_path / "AAA.csv", parse_dates=["Date"])
     assert list(cached["Date"].dt.date) == [date(2024, 1, 8), date(2024, 1, 9)]

@@ -14,7 +14,6 @@ from piyasa_komutani.technical_analysis import (
     POINTS_EMA20_ABOVE_EMA50,
     POINTS_EMA50_ABOVE_EMA200,
     POINTS_MACD_ABOVE_SIGNAL,
-    POINTS_MACD_HIST_POSITIVE,
     POINTS_MACD_HIST_RISING,
     POINTS_RSI_HEALTHY,
     POINTS_RSI_WEAK,
@@ -152,7 +151,26 @@ def test_macd_below_signal_gives_no_points() -> None:
     assert raw == 0
 
 
-def test_macd_histogram_positive_but_not_rising_gives_partial_points() -> None:
+def test_macd_above_signal_and_hist_positive_is_not_double_counted() -> None:
+    # MACD_Hist := MACD - MACD_Signal, yani "MACD > Signal" ve "Hist > 0"
+    # matematiksel olarak ayni kosul - ayri bir "Hist > 0" bonusu YOK.
+    raw, reasons = _score_signals(
+        close=NAN,
+        ema20=NAN,
+        ema50=NAN,
+        ema200=NAN,
+        rsi=NAN,
+        macd=1.0,
+        macd_signal=0.5,
+        macd_hist_last3=(0.1, 0.1, 0.1),  # pozitif ama duz (yukselmiyor)
+    )
+    assert raw == POINTS_MACD_ABOVE_SIGNAL
+    assert len(reasons) == 1
+
+
+def test_macd_histogram_flat_positive_without_macd_gives_no_points() -> None:
+    # macd/macd_signal NaN oldugunda "Hist pozitif" tek basina puan vermez
+    # (ayri bir kural olarak kaldirildi) - sadece "yukseliyor mu" kontrol edilir.
     raw, _ = _score_signals(
         close=NAN,
         ema20=NAN,
@@ -163,7 +181,7 @@ def test_macd_histogram_positive_but_not_rising_gives_partial_points() -> None:
         macd_signal=NAN,
         macd_hist_last3=(0.1, 0.1, 0.1),
     )
-    assert raw == POINTS_MACD_HIST_POSITIVE
+    assert raw == 0
 
 
 def test_macd_histogram_non_positive_gives_no_points() -> None:
@@ -180,7 +198,9 @@ def test_macd_histogram_non_positive_gives_no_points() -> None:
     assert raw == 0
 
 
-def test_macd_histogram_rising_3_days_gives_bonus() -> None:
+def test_macd_histogram_rising_3_days_gives_bonus_independent_of_macd() -> None:
+    # "Rising" kurali macd/macd_signal'a bagli degil, sadece son 3 gunun
+    # sirasina bakar.
     raw, _ = _score_signals(
         close=NAN,
         ema20=NAN,
@@ -191,7 +211,7 @@ def test_macd_histogram_rising_3_days_gives_bonus() -> None:
         macd_signal=NAN,
         macd_hist_last3=(0.1, 0.2, 0.3),
     )
-    assert raw == POINTS_MACD_HIST_POSITIVE + POINTS_MACD_HIST_RISING
+    assert raw == POINTS_MACD_HIST_RISING
 
 
 def test_macd_histogram_falling_gives_no_rising_bonus() -> None:
@@ -205,7 +225,7 @@ def test_macd_histogram_falling_gives_no_rising_bonus() -> None:
         macd_signal=NAN,
         macd_hist_last3=(0.3, 0.2, 0.1),
     )
-    assert raw == POINTS_MACD_HIST_POSITIVE
+    assert raw == 0
 
 
 def test_all_nan_inputs_give_zero_score_and_no_reasons() -> None:
@@ -236,7 +256,7 @@ def test_insufficient_history_returns_unavailable_without_crashing() -> None:
     assert "50" in result.unavailable_reason
 
 
-def test_all_rules_triggered_normalizes_raw_95_to_100() -> None:
+def test_all_rules_triggered_normalizes_raw_85_to_100() -> None:
     ta = _make_indicators_df(
         close=110,
         ema20=105,
@@ -252,7 +272,7 @@ def test_all_rules_triggered_normalizes_raw_95_to_100() -> None:
 
     assert result.score == 100
     assert result.status == "STRONG"
-    assert len(result.reasons) == 7
+    assert len(result.reasons) == 6  # MACD>Signal ve Hist>0 artik tek kural
 
 
 def test_no_rules_triggered_gives_zero_score() -> None:

@@ -132,6 +132,15 @@ def _download_history(symbol: str, start: date, end: date) -> pd.DataFrame:
 
 
 def _merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
+    """Eski ve yeni veriyi tarihe gore birlestirir, cakisan tarihlerde YENI veri kazanir.
+
+    Bilincli tercih (freshness > reproducibility): yfinance bir tarihi
+    sonradan revize ederse (nadir ama olur - ornegin bir bar'in
+    "finalize" edilmesi), en guncel deger cache'e yansir. Bunun bedeli:
+    cache'teki bir tarihin sayisal degeri zaman icinde degisebilir,
+    yani "bugun uretilen bir backtest sonucu, ayni tarih araligi icin
+    gelecekte birebir tekrar uretilebilir" garantisi verilmez.
+    """
     combined = new if old is None else pd.concat([old, new], ignore_index=True)
     combined = combined.drop_duplicates(subset="Date", keep="last")
     return combined.sort_values("Date").reset_index(drop=True)
@@ -161,7 +170,11 @@ def sync_symbol(symbol: str, cache_dir: Path, *, today: date | None = None) -> S
     else:
         start = resolved_today - timedelta(days=LOOKBACK_DAYS)
 
-    end = resolved_today + timedelta(days=1)
+    # end, resolved_today'i DAHIL ETMEZ (yfinance end-exclusive) - piyasa
+    # acikken calistirilirsa bugunun henuz kapanmamis/canli barini asla
+    # cekip cache'lememek icin bilincli tercih. Boylece cache'teki her
+    # satir daima kapanmis, nihai bir gunu temsil eder.
+    end = resolved_today
 
     try:
         new_data = _download_history(symbol, start, end)

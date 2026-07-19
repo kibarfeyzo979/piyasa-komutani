@@ -31,8 +31,12 @@ POINTS_EMA50_ABOVE_EMA200 = 20
 POINTS_RSI_HEALTHY = 15  # RSI 50-70
 POINTS_RSI_WEAK = 5  # RSI 40-50
 POINTS_MACD_ABOVE_SIGNAL = 15
-POINTS_MACD_HIST_POSITIVE = 10
 POINTS_MACD_HIST_RISING = 10  # son 3 gun artan histogram
+
+# NOT: "MACD_Hist > 0" ayri bir kural olarak YOK - MACD_Hist := MACD - MACD_Signal
+# oldugu icin bu, POINTS_MACD_ABOVE_SIGNAL ile matematiksel olarak ayni kosuldur
+# (MACD > Signal <=> Hist > 0). Ikisini ayri odullendirmek ayni gercegi iki kez
+# saymak olurdu.
 
 MAX_RAW_SCORE = (
     POINTS_CLOSE_ABOVE_EMA20
@@ -40,9 +44,8 @@ MAX_RAW_SCORE = (
     + POINTS_EMA50_ABOVE_EMA200
     + POINTS_RSI_HEALTHY
     + POINTS_MACD_ABOVE_SIGNAL
-    + POINTS_MACD_HIST_POSITIVE
     + POINTS_MACD_HIST_RISING
-)  # 95 - toplam 100'e normalize edilir
+)  # 85 - toplam 100'e normalize edilir
 
 Status = Literal["WEAK", "WATCH", "PROMISING", "STRONG"]
 
@@ -119,15 +122,12 @@ def _score_signals(
             raw += POINTS_RSI_WEAK
             reasons.append("RSI 40-50 araliginda (zayif momentum).")
 
-    # MACD
+    # MACD (MACD > Signal ile Hist > 0 ayni kosul oldugu icin tek kural)
     if pd.notna(macd) and pd.notna(macd_signal) and macd > macd_signal:
         raw += POINTS_MACD_ABOVE_SIGNAL
-        reasons.append("MACD sinyal cizgisinin ustunde.")
+        reasons.append("MACD sinyal cizgisinin ustunde (histogram pozitif).")
     if macd_hist_last3 is not None:
         oldest, middle, newest = macd_hist_last3
-        if pd.notna(newest) and newest > 0:
-            raw += POINTS_MACD_HIST_POSITIVE
-            reasons.append("MACD histogram pozitif.")
         if (
             pd.notna(oldest)
             and pd.notna(middle)

@@ -23,13 +23,29 @@ def calculate_ema(close: pd.Series, span: int) -> pd.Series:
 
 
 def calculate_rsi(close: pd.Series, period: int = DEFAULT_RSI_PERIOD) -> pd.Series:
-    """Wilder yumusatmasiyla RSI (Goreceli Guc Endeksi) hesaplar."""
+    """Wilder yumusatmasiyla RSI (Goreceli Guc Endeksi) hesaplar.
+
+    Klasik Wilder tanimina tam uyar: ilk ortalama kazanc/kayip basit
+    aritmetik ortalama (SMA) ile tohumlanir, sonraki her deger Wilder'in
+    ozyinelemeli formuluyle ((period-1)*onceki + yeni) / period hesaplanir.
+
+    (Sadece close.ewm(alpha=1/period, adjust=False) kullanmak, ozyinelemeyi
+    0. satirdan baslatip ilk period-1 degeri NaN olarak maskeler - bu,
+    period. bardaki "tohum" degerin duz bir SMA olmasini degil, 0. satira
+    kadar geri giden yanlis-tohumlanmis bir ozyinelemenin sonucu olmasini
+    saglar. Fark birkaç periyot sonra ihmal edilebilir hale gelse de, erken
+    barlarda TradingView/ta-lib gibi referans uygulamalarla tam eslesmez.)
+    """
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+
+    for i in range(period + 1, len(close)):
+        avg_gain.iat[i] = (avg_gain.iat[i - 1] * (period - 1) + gain.iat[i]) / period
+        avg_loss.iat[i] = (avg_loss.iat[i - 1] * (period - 1) + loss.iat[i]) / period
 
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
