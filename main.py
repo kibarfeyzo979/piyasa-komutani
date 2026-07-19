@@ -1,18 +1,38 @@
 import logging
 from pathlib import Path
 
-from piyasa_komutani.data import read_portfolio
+from piyasa_komutani.data import PortfolioRow, read_portfolio
 from piyasa_komutani.display import render_portfolio_table
-from piyasa_komutani.market_data import sync_portfolio_symbols
+from piyasa_komutani.export import ReportRow, write_report
+from piyasa_komutani.indicators import calculate_indicators
+from piyasa_komutani.market_data import load_cached_prices, sync_portfolio_symbols
+from piyasa_komutani.scoring import score_latest
 
 PORTFOLIO_PATH = Path(__file__).resolve().parent / "portfolio.csv"
 MARKET_DATA_DIR = Path(__file__).resolve().parent / "data" / "market_data"
+OUTPUT_PATH = Path(__file__).resolve().parent / "output" / "sonuclar.xlsx"
 
 STATUS_LABELS = {
     "fresh": "guncel",
     "updated": "guncellendi",
     "failed": "HATA",
 }
+
+
+def _build_report_rows(rows: list[PortfolioRow]) -> list[ReportRow]:
+    report_rows: list[ReportRow] = []
+    for portfolio_row in rows:
+        prices = load_cached_prices(portfolio_row.symbol, cache_dir=MARKET_DATA_DIR)
+        if prices is None or prices.empty:
+            report_rows.append(ReportRow(portfolio_row, None, None))
+            continue
+
+        indicators = calculate_indicators(prices)
+        score = score_latest(indicators)
+        close_price = float(indicators["Close"].iloc[-1])
+        report_rows.append(ReportRow(portfolio_row, close_price, score))
+
+    return report_rows
 
 
 def main() -> None:
@@ -37,6 +57,23 @@ def main() -> None:
             label = STATUS_LABELS[result.status]
             suffix = f" ({result.message})" if result.message else ""
             print(f"  - {result.symbol}: {label}{suffix}")
+        print()
+
+        report_rows = _build_report_rows(rows)
+
+        print("Firsat puani:")
+        for report_row in report_rows:
+            if report_row.score is None:
+                print(f"  - {report_row.portfolio.symbol}: veri yok")
+            else:
+                print(f"  - {report_row.portfolio.symbol}: {report_row.score.score} ({report_row.score.recommendation})")
+        print()
+
+        try:
+            write_report(report_rows, OUTPUT_PATH)
+            print(f"Sonuclar yazildi: {OUTPUT_PATH}")
+        except OSError as exc:
+            print(f"Excel dosyasi yazilamadi ({OUTPUT_PATH}): {exc}")
         print()
 
         print(render_portfolio_table(rows), end="")
