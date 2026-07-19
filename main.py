@@ -2,11 +2,16 @@ import logging
 from pathlib import Path
 
 from piyasa_komutani.data import PortfolioRow, read_portfolio
-from piyasa_komutani.display import render_portfolio_table
+from piyasa_komutani.display import OpportunityRow, render_opportunity_table, render_portfolio_table
 from piyasa_komutani.export import ReportRow, write_report
 from piyasa_komutani.indicators import calculate_indicators
 from piyasa_komutani.market_data import load_cached_prices, sync_portfolio_symbols
 from piyasa_komutani.scoring import score_latest
+from piyasa_komutani.technical_analysis import (
+    OpportunityScore,
+    calculate_opportunity_score,
+    calculate_technical_indicators,
+)
 
 PORTFOLIO_PATH = Path(__file__).resolve().parent / "portfolio.csv"
 MARKET_DATA_DIR = Path(__file__).resolve().parent / "data" / "market_data"
@@ -33,6 +38,44 @@ def _build_report_rows(rows: list[PortfolioRow]) -> list[ReportRow]:
         report_rows.append(ReportRow(portfolio_row, close_price, score))
 
     return report_rows
+
+
+def _build_opportunity_rows(rows: list[PortfolioRow]) -> list[OpportunityRow]:
+    opportunity_rows: list[OpportunityRow] = []
+    for portfolio_row in rows:
+        prices = load_cached_prices(portfolio_row.symbol, cache_dir=MARKET_DATA_DIR)
+        if prices is None or prices.empty:
+            opportunity_rows.append(
+                OpportunityRow(
+                    portfolio_row.symbol,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    OpportunityScore(None, None, (), "Cache'lenmis veri yok."),
+                )
+            )
+            continue
+
+        ta = calculate_technical_indicators(prices)
+        score = calculate_opportunity_score(ta)
+        latest = ta.iloc[-1]
+        opportunity_rows.append(
+            OpportunityRow(
+                portfolio_row.symbol,
+                latest["Close"],
+                latest["EMA_20"],
+                latest["EMA_50"],
+                latest["EMA_200"],
+                latest["RSI_14"],
+                latest["MACD_Hist"],
+                score,
+            )
+        )
+
+    return opportunity_rows
 
 
 def main() -> None:
@@ -74,6 +117,11 @@ def main() -> None:
             print(f"Sonuclar yazildi: {OUTPUT_PATH}")
         except OSError as exc:
             print(f"Excel dosyasi yazilamadi ({OUTPUT_PATH}): {exc}")
+        print()
+
+        opportunity_rows = _build_opportunity_rows(rows)
+        print("Teknik Analiz / Firsat Skoru:")
+        print(render_opportunity_table(opportunity_rows), end="")
         print()
 
         print(render_portfolio_table(rows), end="")
