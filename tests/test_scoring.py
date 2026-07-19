@@ -7,7 +7,13 @@ import math
 import pandas as pd
 
 from piyasa_komutani.indicators import calculate_indicators
-from piyasa_komutani.scoring import DEFAULT_RSI_OVERBOUGHT, DEFAULT_RSI_OVERSOLD, score_latest, score_row
+from piyasa_komutani.scoring import (
+    DEFAULT_EMA_LONG,
+    DEFAULT_RSI_OVERBOUGHT,
+    DEFAULT_RSI_OVERSOLD,
+    score_latest,
+    score_row,
+)
 
 
 def test_all_bullish_signals_gives_max_score() -> None:
@@ -90,3 +96,48 @@ def test_score_latest_matches_calculate_indicators_columns() -> None:
     # Surekli artan fiyat serisinde EMA kisa > EMA uzun ve MACD > sinyal beklenir.
     assert result.score >= 1
     assert result.recommendation in {"AL", "GUCLU AL"}
+
+
+def test_score_latest_with_insufficient_history_is_unavailable_not_crash() -> None:
+    price_data = pd.DataFrame(
+        {
+            "Date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "Close": [100.0, 101.0, 99.0, 102.0, 103.0],
+        }
+    )
+
+    indicators = calculate_indicators(price_data)
+    result = score_latest(indicators)
+
+    assert result.score is None
+    assert result.recommendation is None
+    assert result.reasons == ()
+    assert result.unavailable_reason is not None
+    assert str(DEFAULT_EMA_LONG) in result.unavailable_reason
+
+
+def test_score_latest_on_empty_indicators_is_unavailable_not_crash() -> None:
+    empty = pd.DataFrame(columns=["Date", "Close", "EMA_12", "EMA_26", "RSI_14", "MACD", "MACD_Signal", "MACD_Hist"])
+
+    result = score_latest(empty)
+
+    assert result.score is None
+    assert result.unavailable_reason is not None
+
+
+def test_score_latest_reports_clear_reason_on_column_mismatch() -> None:
+    # Yeterli satir var ama ema_short/ema_long parametreleri DataFrame'deki
+    # gercek kolon adlariyla eslesmiyor (KeyError yerine anlasilir mesaj).
+    price_data = pd.DataFrame(
+        {
+            "Date": pd.date_range("2024-01-01", periods=40, freq="D"),
+            "Close": [100.0 + i for i in range(40)],
+        }
+    )
+    indicators = calculate_indicators(price_data)  # EMA_12, EMA_26 uretir
+
+    result = score_latest(indicators, ema_short=10, ema_long=20)  # DataFrame'de EMA_10/EMA_20 yok
+
+    assert result.score is None
+    assert result.unavailable_reason is not None
+    assert "kolonu bulunamadi" in result.unavailable_reason

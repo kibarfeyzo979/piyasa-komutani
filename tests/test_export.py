@@ -53,6 +53,30 @@ def test_write_report_writes_placeholder_for_missing_data(tmp_path) -> None:
     assert data_values == ["BILINMEYEN", "stock", 100.0, 285.50, "TRY", "Veri yok", None, "VERI YOK", None]
 
 
+def test_write_report_writes_reason_for_unavailable_score(tmp_path) -> None:
+    path = tmp_path / "sonuclar.xlsx"
+    score = ScoreResult(None, None, (), "Yetersiz gecmis veri: EMA26 icin en az 26 gun gerekli, mevcut 5 gun.")
+    rows = [ReportRow(_portfolio_row(), 330.0, score)]
+
+    write_report(rows, path)
+
+    workbook = load_workbook(path)
+    sheet = workbook.active
+    data_values = [cell.value for cell in sheet[2]]
+
+    assert data_values == [
+        "THYAO.IS",
+        "stock",
+        100.0,
+        285.50,
+        "TRY",
+        330.0,  # close fiyati hala gosteriliyor, sadece skor yok
+        None,
+        "Yetersiz gecmis veri: EMA26 icin en az 26 gun gerekli, mevcut 5 gun.",
+        None,
+    ]
+
+
 def test_write_report_creates_missing_parent_directory(tmp_path) -> None:
     path = tmp_path / "output" / "nested" / "sonuclar.xlsx"
     rows = [ReportRow(_portfolio_row(), 330.0, ScoreResult(0, "NOTR", ()))]

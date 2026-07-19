@@ -106,10 +106,13 @@ def main() -> None:
 
         print("Firsat puani:")
         for report_row in report_rows:
+            symbol = report_row.portfolio.symbol
             if report_row.score is None:
-                print(f"  - {report_row.portfolio.symbol}: veri yok")
+                print(f"  - {symbol}: veri yok")
+            elif report_row.score.score is None:
+                print(f"  - {symbol}: {report_row.score.unavailable_reason}")
             else:
-                print(f"  - {report_row.portfolio.symbol}: {report_row.score.score} ({report_row.score.recommendation})")
+                print(f"  - {symbol}: {report_row.score.score} ({report_row.score.recommendation})")
         print()
 
         try:

@@ -22,11 +22,16 @@ Recommendation = Literal["GUCLU AL", "AL", "NOTR", "SAT", "GUCLU SAT"]
 
 @dataclass(frozen=True)
 class ScoreResult:
-    """Kural tabanli firsat puani sonucu."""
+    """Kural tabanli firsat puani sonucu.
 
-    score: int
-    recommendation: Recommendation
+    Yetersiz gecmis veri veya beklenmeyen kolon adlari durumunda
+    score/recommendation None olur ve unavailable_reason doldurulur.
+    """
+
+    score: int | None
+    recommendation: Recommendation | None
     reasons: tuple[str, ...]
+    unavailable_reason: str | None = None
 
 
 def _recommendation_for(score: int) -> Recommendation:
@@ -100,14 +105,39 @@ def score_latest(
     ema_short/ema_long/rsi_period yalnizca DataFrame'deki dinamik kolon
     isimlerini (EMA_12, RSI_14 gibi) bulmak icin kullanilir; varsayilanlar
     indicators.py'deki sabitlerle aynidir.
+
+    EMA_{ema_long} anlamli olmasi icin en az ema_long/rsi_period kadar
+    gunluk veri gerekir; yetersizse (veya kolon adlari eslesmiyorsa)
+    skor uretilmez ama exception firlatilmaz.
     """
+    min_rows = max(ema_long, rsi_period)
+    if len(indicators) < min_rows:
+        reason = (
+            f"Yetersiz gecmis veri: EMA{ema_long} icin en az {min_rows} gun "
+            f"gerekli, mevcut {len(indicators)} gun."
+        )
+        return ScoreResult(None, None, (), reason)
+
     latest = indicators.iloc[-1]
+    try:
+        rsi = latest[f"RSI_{rsi_period}"]
+        ema_short_value = latest[f"EMA_{ema_short}"]
+        ema_long_value = latest[f"EMA_{ema_long}"]
+        macd = latest["MACD"]
+        macd_signal = latest["MACD_Signal"]
+    except KeyError as exc:
+        reason = (
+            f"Beklenen indikator kolonu bulunamadi ({exc}): ema_short/ema_long/"
+            "rsi_period parametreleri indicators DataFrame'iyle eslesmiyor olabilir."
+        )
+        return ScoreResult(None, None, (), reason)
+
     return score_row(
-        rsi=latest[f"RSI_{rsi_period}"],
-        ema_short=latest[f"EMA_{ema_short}"],
-        ema_long=latest[f"EMA_{ema_long}"],
-        macd=latest["MACD"],
-        macd_signal=latest["MACD_Signal"],
+        rsi=rsi,
+        ema_short=ema_short_value,
+        ema_long=ema_long_value,
+        macd=macd,
+        macd_signal=macd_signal,
         rsi_oversold=rsi_oversold,
         rsi_overbought=rsi_overbought,
     )

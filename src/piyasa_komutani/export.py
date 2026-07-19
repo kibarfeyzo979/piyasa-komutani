@@ -41,16 +41,31 @@ class ReportRow:
 
 def _row_to_cells(row: ReportRow) -> list[object]:
     portfolio = row.portfolio
-    if row.close_price is None or row.score is None:
+    close_cell = "Veri yok" if row.close_price is None else row.close_price
+
+    if row.score is None:
         return [
             portfolio.symbol,
             portfolio.asset_type,
             portfolio.quantity,
             portfolio.average_cost,
             portfolio.currency,
-            "Veri yok",
+            close_cell,
             "",
             "VERI YOK",
+            "",
+        ]
+
+    if row.score.score is None:
+        return [
+            portfolio.symbol,
+            portfolio.asset_type,
+            portfolio.quantity,
+            portfolio.average_cost,
+            portfolio.currency,
+            close_cell,
+            "",
+            row.score.unavailable_reason or "VERI YOK",
             "",
         ]
 
