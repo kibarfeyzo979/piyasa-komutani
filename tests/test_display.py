@@ -5,9 +5,11 @@ from piyasa_komutani.display import (
     OpportunityRow,
     render_opportunity_table,
     render_portfolio_table,
+    render_position_table,
     render_scanner_table,
 )
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
+from piyasa_komutani.portfolio_analysis import PositionAnalysis, PositionHealth
 from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
@@ -102,3 +104,44 @@ def test_render_scanner_table_limit_truncates_results() -> None:
 
     assert "SYM9" in output
     assert "SYM10" not in output
+
+
+def test_render_position_table_includes_headers_and_values() -> None:
+    position = PositionAnalysis(
+        symbol="XYZ", quantity=10.0, average_cost=100.0, currency="TRY",
+        current_price=110.0, market_value=1100.0, cost_value=1000.0,
+        unrealized_pl=100.0, unrealized_pl_pct=10.0, weight_pct=42.5,
+        trend=TrendScore(70, "STRONG_TREND", ()),
+        opportunity=OpportunityScore(80, "HIGH_OPPORTUNITY", ()),
+        health=PositionHealth(75, "HEALTHY", ()),
+        action_hint="HOLD_CANDIDATE",
+    )
+
+    output = render_position_table([position])
+
+    assert "Weight %" in output
+    assert "P/L %" in output
+    assert "Action Hint" in output
+    assert "XYZ" in output
+    assert "42.50" in output
+    assert "10.00" in output
+    assert "STRONG_TREND" in output
+    assert "HEALTHY" in output
+    assert "HOLD_CANDIDATE" in output
+
+
+def test_render_position_table_shows_placeholder_for_unavailable() -> None:
+    position = PositionAnalysis(
+        symbol="ABC", quantity=1.0, average_cost=10.0, currency="TRY",
+        current_price=None, market_value=None, cost_value=10.0,
+        unrealized_pl=None, unrealized_pl_pct=None, weight_pct=None,
+        trend=TrendScore(None, None, (), "Cache'lenmis veri yok."),
+        opportunity=OpportunityScore(None, None, (), "Cache'lenmis veri yok."),
+        health=PositionHealth(None, None, (), "Cache'lenmis veri yok."),
+        action_hint=None,
+    )
+
+    output = render_position_table([position])
+
+    assert "ABC" in output
+    assert "-" in output

@@ -12,6 +12,7 @@ from rich.table import Table
 
 from piyasa_komutani.data import PortfolioRow
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
+from piyasa_komutani.portfolio_analysis import PositionAnalysis
 from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
@@ -150,5 +151,37 @@ def render_scanner_table(candidates: list[OpportunityCandidate], *, limit: int |
 
     buffer = StringIO()
     console = Console(file=buffer, width=230, no_color=True)
+    console.print(table)
+    return buffer.getvalue()
+
+
+def render_position_table(positions: list[PositionAnalysis]) -> str:
+    """Portfoy pozisyonlarinin ozet analiz tablosunu rich ile bicimlendirir.
+
+    Tam detay (Market Value, Cost Value vb.) CSV'de; bu, terminal icin
+    kisaltilmis bir gorunum.
+    """
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    table.add_column("Symbol")
+    table.add_column("Weight %", justify="right")
+    table.add_column("P/L %", justify="right")
+    table.add_column("Trend")
+    table.add_column("Health")
+    table.add_column("Action Hint")
+
+    for position in positions:
+        trend_text = position.trend.status if position.trend.status is not None else "-"
+        health_text = position.health.status if position.health.status is not None else "-"
+        table.add_row(
+            position.symbol,
+            _format_number(position.weight_pct),
+            _format_number(position.unrealized_pl_pct),
+            trend_text,
+            health_text,
+            position.action_hint or "-",
+        )
+
+    buffer = StringIO()
+    console = Console(file=buffer, width=100, no_color=True)
     console.print(table)
     return buffer.getvalue()

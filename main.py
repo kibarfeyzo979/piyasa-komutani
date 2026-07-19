@@ -7,12 +7,19 @@ from piyasa_komutani.display import (
     OpportunityRow,
     render_opportunity_table,
     render_portfolio_table,
+    render_position_table,
     render_scanner_table,
 )
 from piyasa_komutani.export import ReportRow, write_report
 from piyasa_komutani.indicators import calculate_indicators
 from piyasa_komutani.market_data import load_cached_prices, sync_portfolio_symbols
 from piyasa_komutani.opportunity_scanner import load_min_average_volume, scan_universe, write_opportunities_csv
+from piyasa_komutani.portfolio_analysis import (
+    build_portfolio_analysis_report,
+    load_concentration_thresholds,
+    write_portfolio_analysis_csv,
+    write_portfolio_summary_json,
+)
 from piyasa_komutani.scoring import score_latest
 from piyasa_komutani.technical_analysis import (
     OpportunityScore,
@@ -28,6 +35,8 @@ OUTPUT_PATH = Path(__file__).resolve().parent / "output" / "sonuclar.xlsx"
 UNIVERSE_PATH = Path(__file__).resolve().parent / "data" / "universe.csv"
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 REPORT_PATH = Path(__file__).resolve().parent / "reports" / "opportunities.csv"
+ANALYSIS_CSV_PATH = Path(__file__).resolve().parent / "reports" / "portfolio_analysis.csv"
+SUMMARY_JSON_PATH = Path(__file__).resolve().parent / "reports" / "portfolio_summary.json"
 
 SCAN_TOP_N = 10
 
@@ -196,19 +205,120 @@ def run_scan() -> None:
     print(f"Interesting: {report.interesting_count}")
 
 
+def run_analyze() -> None:
+    """Portfoy Position Health analizini calistirir: degerleme, saglik skoru,
+    yogunlasma riski, scanner karsilastirmasi, terminal ozeti, CSV/JSON raporlari."""
+    try:
+        portfolio_rows, portfolio_errors = read_portfolio(PORTFOLIO_PATH)
+    except OSError as exc:
+        print(f"Portfoy dosyasi okunamadi ({PORTFOLIO_PATH}): {exc}")
+        return
+
+    if portfolio_errors:
+        print("Hatali portfoy satirlari:")
+        for error in portfolio_errors:
+            print(f"  - {error}")
+        print()
+
+    if not portfolio_rows:
+        print("Analiz edilecek gecerli portfoy satiri yok.")
+        return
+
+    portfolio_symbols = [row.symbol for row in portfolio_rows]
+    sync_portfolio_symbols(portfolio_symbols, cache_dir=MARKET_DATA_DIR)
+
+    try:
+        universe_rows, universe_errors = read_universe(UNIVERSE_PATH)
+    except OSError as exc:
+        print(f"Evren dosyasi okunamadi ({UNIVERSE_PATH}): {exc} - karsilastirma alternatifsiz devam edecek.")
+        universe_rows, universe_errors = [], []
+
+    if universe_errors:
+        print("Hatali evren satirlari:")
+        for error in universe_errors:
+            print(f"  - {error}")
+        print()
+
+    min_average_volume = load_min_average_volume(CONFIG_PATH)
+    scan_report = scan_universe(universe_rows, cache_dir=MARKET_DATA_DIR, min_average_volume=min_average_volume)
+
+    single_threshold, top3_threshold = load_concentration_thresholds(CONFIG_PATH)
+    report = build_portfolio_analysis_report(
+        portfolio_rows,
+        scan_report.candidates,
+        cache_dir=MARKET_DATA_DIR,
+        single_position_threshold_pct=single_threshold,
+        top3_threshold_pct=top3_threshold,
+    )
+
+    print("PORTFOLIO SUMMARY")
+    for totals in report.summary.totals_by_currency:
+        pl_pct = f"{totals.total_unrealized_pl_pct:.2f}%" if totals.total_unrealized_pl_pct is not None else "-"
+        print(f"  Total Value ({totals.currency}): {totals.total_market_value:.2f}")
+        print(f"  Total Cost ({totals.currency}): {totals.total_cost_value:.2f}")
+        print(f"  Unrealized P/L ({totals.currency}): {totals.total_unrealized_pl:.2f} ({pl_pct})")
+        if totals.warnings:
+            for warning in totals.warnings:
+                print(f"  Concentration Risk: {warning}")
+        else:
+            print(f"  Concentration Risk ({totals.currency}): Yok")
+    print()
+
+    print("POSITIONS")
+    print(render_position_table(report.positions), end="")
+    print()
+
+    print("WEAK POSITIONS")
+    if report.weak_positions:
+        for position in report.weak_positions:
+            print(
+                f"  - {position.symbol}: Health Score {position.health.score} (WEAK), "
+                f"Trend Score {position.trend.score}"
+            )
+    else:
+        print("  Yok")
+    print()
+
+    print("HIGH OPPORTUNITY ALTERNATIVES")
+    if report.high_opportunity_alternatives:
+        for candidate in report.high_opportunity_alternatives:
+            print(
+                f"  - {candidate.symbol}: Opportunity Score {candidate.opportunity.score} "
+                f"(HIGH_OPPORTUNITY), Trend Score {candidate.trend.score}"
+            )
+    else:
+        print("  Yok")
+    print()
+
+    try:
+        write_portfolio_analysis_csv(report.positions, ANALYSIS_CSV_PATH)
+        print(f"Sonuclar yazildi: {ANALYSIS_CSV_PATH}")
+    except OSError as exc:
+        print(f"CSV yazilamadi ({ANALYSIS_CSV_PATH}): {exc}")
+
+    try:
+        write_portfolio_summary_json(report, SUMMARY_JSON_PATH)
+        print(f"Ozet yazildi: {SUMMARY_JSON_PATH}")
+    except OSError as exc:
+        print(f"JSON yazilamadi ({SUMMARY_JSON_PATH}): {exc}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="main.py", description="Piyasa Komutani CLI")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("portfolio", help="Portfoy analizini calistirir (varsayilan)")
     subparsers.add_parser("scan", help="Opportunity Scanner'i calistirir")
+    subparsers.add_parser("analyze", help="Portfoy Position Health analizini calistirir")
 
     args = parser.parse_args()
     command = args.command or "portfolio"
 
     if command == "portfolio":
         run_portfolio()
-    else:
+    elif command == "scan":
         run_scan()
+    else:
+        run_analyze()
 
 
 if __name__ == "__main__":

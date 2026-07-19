@@ -9,13 +9,13 @@ guclu firsat adaylarini siralar (bkz. technical_analysis.py).
 from __future__ import annotations
 
 import logging
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
+from piyasa_komutani.config import load_toml_value
 from piyasa_komutani.data import UniverseRow
 from piyasa_komutani.indicators import calculate_average_volume
 from piyasa_komutani.market_data import DEFAULT_CACHE_DIR, load_cached_prices, sync_portfolio_symbols
@@ -113,12 +113,7 @@ def load_min_average_volume(config_path: Path) -> float:
     Dosya, bolum veya anahtar yoksa ya da TOML bozuksa, sessizce
     DEFAULT_MIN_AVERAGE_VOLUME'a duser (config her zaman opsiyoneldir).
     """
-    try:
-        with config_path.open("rb") as config_file:
-            config = tomllib.load(config_file)
-        return float(config["scanner"]["min_average_volume"])
-    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ValueError):
-        return DEFAULT_MIN_AVERAGE_VOLUME
+    return load_toml_value(config_path, "scanner", "min_average_volume", DEFAULT_MIN_AVERAGE_VOLUME)
 
 
 def _scan_symbol(symbol: str, cache_dir: Path, min_average_volume: float) -> tuple[ScanOutcome, OpportunityCandidate | None]:

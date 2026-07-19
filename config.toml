@@ -19,3 +19,7 @@ excel_path = "output/sonuclar.xlsx"
 
 [scanner]
 min_average_volume = 100000
+
+[portfolio_analysis]
+single_position_threshold_pct = 25
+top3_threshold_pct = 60
