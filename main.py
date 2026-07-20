@@ -2,12 +2,22 @@ import argparse
 import logging
 from pathlib import Path
 
+from piyasa_komutani.daily_brief import (
+    build_daily_brief,
+    load_trend_deterioration_settings,
+    write_daily_brief_csv,
+    write_daily_brief_json,
+    write_daily_brief_markdown,
+)
 from piyasa_komutani.data import PortfolioRow, read_portfolio, read_universe
 from piyasa_komutani.display import (
     OpportunityRow,
+    render_daily_opportunities_table,
     render_opportunity_table,
+    render_portfolio_summary_lines,
     render_portfolio_table,
     render_position_table,
+    render_review_table,
     render_scanner_table,
 )
 from piyasa_komutani.export import ReportRow, write_report
@@ -37,6 +47,9 @@ CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 REPORT_PATH = Path(__file__).resolve().parent / "reports" / "opportunities.csv"
 ANALYSIS_CSV_PATH = Path(__file__).resolve().parent / "reports" / "portfolio_analysis.csv"
 SUMMARY_JSON_PATH = Path(__file__).resolve().parent / "reports" / "portfolio_summary.json"
+DAILY_JSON_PATH = Path(__file__).resolve().parent / "reports" / "daily_brief.json"
+DAILY_CSV_PATH = Path(__file__).resolve().parent / "reports" / "daily_brief.csv"
+DAILY_MD_PATH = Path(__file__).resolve().parent / "reports" / "daily_brief.md"
 
 SCAN_TOP_N = 10
 
@@ -252,16 +265,8 @@ def run_analyze() -> None:
     )
 
     print("PORTFOLIO SUMMARY")
-    for totals in report.summary.totals_by_currency:
-        pl_pct = f"{totals.total_unrealized_pl_pct:.2f}%" if totals.total_unrealized_pl_pct is not None else "-"
-        print(f"  Total Value ({totals.currency}): {totals.total_market_value:.2f}")
-        print(f"  Total Cost ({totals.currency}): {totals.total_cost_value:.2f}")
-        print(f"  Unrealized P/L ({totals.currency}): {totals.total_unrealized_pl:.2f} ({pl_pct})")
-        if totals.warnings:
-            for warning in totals.warnings:
-                print(f"  Concentration Risk: {warning}")
-        else:
-            print(f"  Concentration Risk ({totals.currency}): Yok")
+    for line in render_portfolio_summary_lines(report.summary):
+        print(line)
     print()
 
     print("POSITIONS")
@@ -303,12 +308,140 @@ def run_analyze() -> None:
         print(f"JSON yazilamadi ({SUMMARY_JSON_PATH}): {exc}")
 
 
+def run_daily() -> None:
+    """Daily Brief'i calistirir: portfoy + scanner sonuclarini tek gunluk raporda birlestirir."""
+    try:
+        portfolio_rows, portfolio_errors = read_portfolio(PORTFOLIO_PATH)
+    except OSError as exc:
+        print(f"Portfoy dosyasi okunamadi ({PORTFOLIO_PATH}): {exc}")
+        portfolio_rows, portfolio_errors = [], []
+
+    if portfolio_errors:
+        print("Hatali portfoy satirlari:")
+        for error in portfolio_errors:
+            print(f"  - {error}")
+        print()
+
+    if portfolio_rows:
+        portfolio_symbols = [row.symbol for row in portfolio_rows]
+        sync_portfolio_symbols(portfolio_symbols, cache_dir=MARKET_DATA_DIR)
+
+    try:
+        universe_rows, universe_errors = read_universe(UNIVERSE_PATH)
+    except OSError as exc:
+        print(f"Evren dosyasi okunamadi ({UNIVERSE_PATH}): {exc} - scanner alternatifsiz devam edecek.")
+        universe_rows, universe_errors = [], []
+
+    if universe_errors:
+        print("Hatali evren satirlari:")
+        for error in universe_errors:
+            print(f"  - {error}")
+        print()
+
+    min_average_volume = load_min_average_volume(CONFIG_PATH)
+    single_threshold, top3_threshold = load_concentration_thresholds(CONFIG_PATH)
+    lookback_days, deterioration_threshold = load_trend_deterioration_settings(CONFIG_PATH)
+
+    brief = build_daily_brief(
+        portfolio_rows,
+        universe_rows,
+        cache_dir=MARKET_DATA_DIR,
+        min_average_volume=min_average_volume,
+        single_position_threshold_pct=single_threshold,
+        top3_threshold_pct=top3_threshold,
+        trend_deterioration_lookback_days=lookback_days,
+        trend_deterioration_threshold=deterioration_threshold,
+    )
+
+    print(f"DAILY BRIEF - {brief.generated_at.isoformat(timespec='seconds')}")
+    print()
+
+    print("A. PORTFOLIO SUMMARY")
+    if brief.portfolio_status == "FAILED":
+        print(f"  Portfolio status: FAILED ({brief.portfolio_error})")
+    elif brief.portfolio_status == "EMPTY":
+        print("  Portfolio status: EMPTY")
+    elif brief.report is not None:
+        for line in render_portfolio_summary_lines(brief.report.summary):
+            print(line)
+    print()
+
+    print("B. RISK ALERTS")
+    if brief.risk_alerts:
+        for alert in brief.risk_alerts:
+            print(f"  - {alert}")
+    else:
+        print("  Yok")
+    print()
+
+    print("C. POSITIONS TO REVIEW")
+    if brief.positions_to_review:
+        print(render_review_table(brief.positions_to_review), end="")
+    else:
+        print("  Yok")
+    print()
+
+    print("D. STRONG PORTFOLIO POSITIONS")
+    if brief.strong_positions:
+        print(render_position_table(brief.strong_positions), end="")
+    else:
+        print("  Yok")
+    print()
+
+    print("E. TOP MARKET OPPORTUNITIES")
+    if brief.scanner_status == "FAILED":
+        print(f"  Scanner status: FAILED ({brief.scanner_error})")
+    elif brief.top_opportunities:
+        print(render_daily_opportunities_table(brief.top_opportunities), end="")
+    else:
+        print("  Yok")
+    print()
+
+    print("F. ALTERNATIVE CANDIDATES")
+    alternatives = brief.report.high_opportunity_alternatives if brief.report is not None else []
+    if alternatives:
+        for candidate in alternatives:
+            print(
+                f"  - {candidate.symbol}: Opportunity Score {candidate.opportunity.score} "
+                f"({candidate.opportunity.status}), Trend Score {candidate.trend.score}"
+            )
+    else:
+        print("  Yok")
+    print()
+
+    print("G. DAILY SUMMARY")
+    print(f"  Portfolio condition: {brief.summary.portfolio_condition}")
+    print(f"  Main risk: {brief.summary.main_risk}")
+    print(f"  Positions requiring review: {brief.summary.positions_requiring_review}")
+    print(f"  High opportunity candidates: {brief.summary.high_opportunity_candidates}")
+    print()
+
+    try:
+        write_daily_brief_json(brief, DAILY_JSON_PATH)
+        print(f"Sonuclar yazildi: {DAILY_JSON_PATH}")
+    except OSError as exc:
+        print(f"JSON yazilamadi ({DAILY_JSON_PATH}): {exc}")
+
+    try:
+        write_daily_brief_csv(brief, DAILY_CSV_PATH)
+        print(f"Sonuclar yazildi: {DAILY_CSV_PATH}")
+    except OSError as exc:
+        print(f"CSV yazilamadi ({DAILY_CSV_PATH}): {exc}")
+
+    try:
+        write_daily_brief_markdown(brief, DAILY_MD_PATH)
+        print(f"Sonuclar yazildi: {DAILY_MD_PATH}")
+    except OSError as exc:
+        print(f"Markdown yazilamadi ({DAILY_MD_PATH}): {exc}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="main.py", description="Piyasa Komutani CLI")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("portfolio", help="Portfoy analizini calistirir (varsayilan)")
     subparsers.add_parser("scan", help="Opportunity Scanner'i calistirir")
     subparsers.add_parser("analyze", help="Portfoy Position Health analizini calistirir")
+    subparsers.add_parser("daily", help="Daily Brief'i calistirir (portfoy + scanner ozeti)")
 
     args = parser.parse_args()
     command = args.command or "portfolio"
@@ -317,8 +450,10 @@ def main() -> None:
         run_portfolio()
     elif command == "scan":
         run_scan()
-    else:
+    elif command == "analyze":
         run_analyze()
+    else:
+        run_daily()
 
 
 if __name__ == "__main__":

@@ -3,13 +3,16 @@
 from piyasa_komutani.data import PortfolioRow
 from piyasa_komutani.display import (
     OpportunityRow,
+    render_daily_opportunities_table,
     render_opportunity_table,
+    render_portfolio_summary_lines,
     render_portfolio_table,
     render_position_table,
+    render_review_table,
     render_scanner_table,
 )
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
-from piyasa_komutani.portfolio_analysis import PositionAnalysis, PositionHealth
+from piyasa_komutani.portfolio_analysis import CurrencyTotals, PortfolioSummary, PositionAnalysis, PositionHealth
 from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
@@ -145,3 +148,67 @@ def test_render_position_table_shows_placeholder_for_unavailable() -> None:
 
     assert "ABC" in output
     assert "-" in output
+
+
+def test_render_portfolio_summary_lines_includes_totals_and_concentration() -> None:
+    totals = CurrencyTotals(
+        currency="TRY", total_market_value=1000.0, total_cost_value=900.0,
+        total_unrealized_pl=100.0, total_unrealized_pl_pct=11.11,
+        largest_position_symbol="XYZ", largest_position_weight_pct=80.0, top3_weight_pct=100.0,
+        warnings=("HIGH concentration: XYZ alone is 80.0% of the TRY portfolio.",),
+    )
+    summary = PortfolioSummary(totals_by_currency=(totals,), strong_count=1, healthy_count=0, caution_count=0, weak_count=0)
+
+    lines = render_portfolio_summary_lines(summary)
+
+    joined = "\n".join(lines)
+    assert "Total Value (TRY): 1000.00" in joined
+    assert "HIGH concentration" in joined
+
+
+def test_render_portfolio_summary_lines_shows_no_risk_when_no_warnings() -> None:
+    totals = CurrencyTotals(
+        currency="USD", total_market_value=500.0, total_cost_value=500.0,
+        total_unrealized_pl=0.0, total_unrealized_pl_pct=0.0,
+        largest_position_symbol="AAA", largest_position_weight_pct=50.0, top3_weight_pct=100.0,
+        warnings=(),
+    )
+    summary = PortfolioSummary(totals_by_currency=(totals,), strong_count=0, healthy_count=1, caution_count=0, weak_count=0)
+
+    lines = render_portfolio_summary_lines(summary)
+
+    assert any("Yok" in line for line in lines)
+
+
+def test_render_review_table_includes_main_reason() -> None:
+    position = PositionAnalysis(
+        symbol="XYZ", quantity=10.0, average_cost=100.0, currency="TRY",
+        current_price=50.0, market_value=500.0, cost_value=1000.0,
+        unrealized_pl=-500.0, unrealized_pl_pct=-50.0, weight_pct=100.0,
+        trend=TrendScore(20, "WEAK_TREND", ()),
+        opportunity=OpportunityScore(20, "LOW", ()),
+        health=PositionHealth(25, "WEAK", ("+ MACD momentum positive.", "- Price below EMA20.")),
+        action_hint="REVIEW",
+    )
+
+    output = render_review_table([position])
+
+    assert "Main Reason" in output
+    assert "XYZ" in output
+    assert "Price below EMA20" in output  # ilk "-" ile baslayan sebep secildi
+
+
+def test_render_daily_opportunities_table_includes_requested_columns() -> None:
+    candidates = [_candidate("AAA", 90), _candidate("BBB", 80)]
+
+    output = render_daily_opportunities_table(candidates, limit=1)
+
+    assert "Rank" in output
+    assert "Trend Score" in output
+    assert "Opportunity Score" in output
+    assert "RSI" in output
+    assert "Return 20D" in output
+    assert "Distance EMA20 %" in output
+    assert "Opportunity Status" in output
+    assert "AAA" in output
+    assert "BBB" not in output

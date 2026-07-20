@@ -12,7 +12,7 @@ from rich.table import Table
 
 from piyasa_komutani.data import PortfolioRow
 from piyasa_komutani.opportunity_scanner import OpportunityCandidate
-from piyasa_komutani.portfolio_analysis import PositionAnalysis
+from piyasa_komutani.portfolio_analysis import PortfolioSummary, PositionAnalysis
 from piyasa_komutani.technical_analysis import OpportunityScore, TrendScore
 
 
@@ -183,5 +183,94 @@ def render_position_table(positions: list[PositionAnalysis]) -> str:
 
     buffer = StringIO()
     console = Console(file=buffer, width=100, no_color=True)
+    console.print(table)
+    return buffer.getvalue()
+
+
+def render_portfolio_summary_lines(summary: PortfolioSummary) -> list[str]:
+    """PortfolioSummary'yi (para birimi basina Total/Cost/P&L/Concentration) metin
+    satirlarina donusturur. main.py'nin 'analyze' ve 'daily' komutlari tarafindan
+    paylasilir - ayni hesap iki dosyada tekrar edilmez."""
+    lines: list[str] = []
+    for totals in summary.totals_by_currency:
+        pl_pct = f"{totals.total_unrealized_pl_pct:.2f}%" if totals.total_unrealized_pl_pct is not None else "-"
+        lines.append(f"  Total Value ({totals.currency}): {totals.total_market_value:.2f}")
+        lines.append(f"  Total Cost ({totals.currency}): {totals.total_cost_value:.2f}")
+        lines.append(f"  Unrealized P/L ({totals.currency}): {totals.total_unrealized_pl:.2f} ({pl_pct})")
+        if totals.warnings:
+            for warning in totals.warnings:
+                lines.append(f"  Concentration Risk: {warning}")
+        else:
+            lines.append(f"  Concentration Risk ({totals.currency}): Yok")
+    return lines
+
+
+def _main_reason(position: PositionAnalysis) -> str:
+    """Bir pozisyonun tek satirlik 'ana nedeni': health.reasons icindeki ilk
+    negatif ('-') cumle, yoksa ilk reason, o da yoksa unavailable_reason."""
+    negative = next((reason for reason in position.health.reasons if reason.startswith("-")), None)
+    if negative is not None:
+        return negative
+    if position.health.reasons:
+        return position.health.reasons[0]
+    return position.health.unavailable_reason or "-"
+
+
+def render_review_table(positions: list[PositionAnalysis]) -> str:
+    """Gozden gecirilmesi gereken pozisyonlarin (WEAK/CAUTION/RISK_ALERT/veri yok)
+    tablosunu rich ile bicimlendirir."""
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    table.add_column("Symbol")
+    table.add_column("Weight %", justify="right")
+    table.add_column("P/L %", justify="right")
+    table.add_column("Trend Score", justify="right")
+    table.add_column("Health Score", justify="right")
+    table.add_column("Action Hint")
+    table.add_column("Main Reason")
+
+    for position in positions:
+        table.add_row(
+            position.symbol,
+            _format_number(position.weight_pct),
+            _format_number(position.unrealized_pl_pct),
+            str(position.trend.score) if position.trend.score is not None else "-",
+            str(position.health.score) if position.health.score is not None else "-",
+            position.action_hint or "-",
+            _main_reason(position),
+        )
+
+    buffer = StringIO()
+    console = Console(file=buffer, width=160, no_color=True)
+    console.print(table)
+    return buffer.getvalue()
+
+
+def render_daily_opportunities_table(candidates: list[OpportunityCandidate], *, limit: int | None = None) -> str:
+    """Firsat adaylarinin kisaltilmis (Daily Brief icin) tablosunu rich ile bicimlendirir."""
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    table.add_column("Rank", justify="right")
+    table.add_column("Symbol")
+    table.add_column("Trend Score", justify="right")
+    table.add_column("Opportunity Score", justify="right")
+    table.add_column("RSI", justify="right")
+    table.add_column("Return 20D", justify="right")
+    table.add_column("Distance EMA20 %", justify="right")
+    table.add_column("Opportunity Status")
+
+    rows_to_show = candidates if limit is None else candidates[:limit]
+    for rank, candidate in enumerate(rows_to_show, start=1):
+        table.add_row(
+            str(rank),
+            candidate.symbol,
+            str(candidate.trend.score),
+            str(candidate.opportunity.score),
+            _format_number(candidate.rsi, ".1f"),
+            _format_number(candidate.return_20d, ".2f"),
+            _format_number(candidate.distance_ema20_pct, ".2f"),
+            candidate.opportunity.status or "-",
+        )
+
+    buffer = StringIO()
+    console = Console(file=buffer, width=140, no_color=True)
     console.print(table)
     return buffer.getvalue()
